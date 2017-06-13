@@ -14,6 +14,7 @@ import logging
 import logging.handlers
 import datetime
 import ConfigParser
+import io
 
 import sys
 reload(sys) 
@@ -127,6 +128,7 @@ TAB_SUMMARY = {}
 IBRate = [0.7,0.3]
 IBRateSpecial = {}
 IBClientRateSpecial = {}
+HideRowsByAE = set()
 
 class ANCurrencySUMBASE(object):
     __c_Titles = season_c_Titles
@@ -137,6 +139,7 @@ class ANCurrencySUMBASE(object):
     IBRate = IBRate
     IBRateSpecial = IBRateSpecial
     IBClientRateSpecial = IBClientRateSpecial
+    HideRowsByAE = HideRowsByAE
     def __init__(self,currency,begincol):
         self.MyID = ANCurrencySUMBASE.__IDIDX
         ANCurrencySUMBASE.__IDIDX += 1
@@ -239,8 +242,9 @@ class ANCurrencySUMBASE(object):
                 TAB_SUMMARY_ADD[ae][client][u'USD'][u'qty'].append(add_qty)
                 TAB_SUMMARY_ADD[ae][client][u'USD'][u'rebate'].append(add_rebate)
         '''
-                
-        
+        #if (ae in self.HideRowsByAE):
+        #     wsheet.row(row).hidden = True 
+        #wsheet.row(row).hidden = True 
     
     def writeHead(self,wsheet):
         wsheet.write_merge(4,4,self.__colBegin,self.__colBegin+len(self.colTitles)-1,self.__currency,TimStyles[u'headerBIG'])
@@ -503,6 +507,13 @@ class TimRebate:
                 wSheet.write_merge(m_row,row-1,1,1,seasons1[self.TimQuarter][m],TimStyles[u'id'])
         row += self.writeSum(wSheet,row,firstRow,row-1,mkt)
         wSheet.write_merge(firstRow,row-1,0,0,ae,TimStyles[u'id'])
+        #wSheet.row(row-1).level = 0 
+        #wSheet.row(row-2).level = 0 
+        
+        if (row-2 > firstRow):
+            for r in xrange(firstRow,row-2):
+                wSheet.row(r).level = 1  
+                #wSheet.row(r).collapse = True
         return row -  firstRow
 
     def writeAAE_TAB(self,sheet,firstRow,ae,mkt):
@@ -854,6 +865,7 @@ class TimRebate:
         cell2 = "$%s" % xlwt.Utils.rowcol_to_cell(row+6,9,True)
         sheet.write(row+7,8,u'返佣港元等值',TimStyles[u'summary'])
         sheet.write(row+7,9,xlwt.Formula("%s/%s" % (cell1,cell2)))
+        #sheet.set_show_outline(1)
 
                 
     def writeSum(self,sheet,row,row1,row2,mkt):
@@ -942,24 +954,24 @@ class TimRebate:
         fn = os.path.realpath(os.path.join(self.m_rootDir,u'rebate.conf'))
         self.cf = ConfigParser.ConfigParser()    
         try:
-            self.cf.read(fn)   
-            for key in (u"USD/HKD",u"USD/USD",u"USD/JPY",u"USD/MYR",u"USD/CNY"):
-                CCYRATE[key] = self.cf.getfloat(u"CCYRATE", key)
-            
-            HKEX_SP_FEE_HKD_A = self.cf.get(u"HKEX_SP_FEE", u"HKD_A")
-            Multiplier_A  = self.cf.getfloat(u"HKEX_SP_FEE", u"Multiplier_A")
-            HKEX_SP_FEE_HKD_B = self.cf.get(u"HKEX_SP_FEE", u"HKD_B")
-            Multiplier_B  = self.cf.getfloat(u"HKEX_SP_FEE", u"Multiplier_B")
-            for i in split(HKEX_SP_FEE_HKD_A,','):
-                self.seasonSUM.setSP_FEE_MultiplierLocal(i,Multiplier_A)
-            for i in split(HKEX_SP_FEE_HKD_B,','):
-                self.seasonSUM.setSP_FEE_MultiplierLocal(i,Multiplier_B)
-            self.__SP_FEE_MultiplierGlobal =  self.cf.getfloat(u"GLOBAL_SP_FEE", u"Multiplier")
-            self.seasonSUM.setSP_FEE_MultiplierGlable(self.__SP_FEE_MultiplierGlobal)
-
+            with io.open(fn, 'r', encoding='utf_8_sig') as fp:
+                #self.cf.read(fn)
+                self.cf.readfp(fp)   
+                for key in (u"USD/HKD",u"USD/USD",u"USD/JPY",u"USD/MYR",u"USD/CNY"):
+                    CCYRATE[key] = self.cf.getfloat(u"CCYRATE", key)
+                HKEX_SP_FEE_HKD_A = self.cf.get(u"HKEX_SP_FEE", u"HKD_A")
+                Multiplier_A  = self.cf.getfloat(u"HKEX_SP_FEE", u"Multiplier_A")
+                HKEX_SP_FEE_HKD_B = self.cf.get(u"HKEX_SP_FEE", u"HKD_B")
+                Multiplier_B  = self.cf.getfloat(u"HKEX_SP_FEE", u"Multiplier_B")
+                for i in split(HKEX_SP_FEE_HKD_A,','):
+                    self.seasonSUM.setSP_FEE_MultiplierLocal(i,Multiplier_A)
+                for i in split(HKEX_SP_FEE_HKD_B,','):
+                    self.seasonSUM.setSP_FEE_MultiplierLocal(i,Multiplier_B)
+                self.__SP_FEE_MultiplierGlobal =  self.cf.getfloat(u"GLOBAL_SP_FEE", u"Multiplier")
+                self.seasonSUM.setSP_FEE_MultiplierGlable(self.__SP_FEE_MultiplierGlobal)
         except Exception, e:
             logger.error(u'Read conf file error! %s' % e)    
-        
+        self.parseHideRowsByAE(self.cf)
         self.parseIBRate(self.cf)    
         self.parseRebateDefine(self.cf)
 
@@ -985,6 +997,13 @@ class TimRebate:
             cv = cf.get(u"IBRATE", rv[1])
             cvv = split(cv,u':')                
             IBClientRateSpecial[rv[0]] = (float(cvv[0])*1.0000,float(cvv[1])*1.0000) 
+
+    def parseHideRowsByAE(self,cf):
+        cv = cf.get(u"SYS", u"HideRowsByAE")
+        cvs = split(cv.lstrip(u'(').rstrip(u')'),u',')
+        for r in cvs:  
+            HideRowsByAE.add(r)
+
 
 
 def test():
